@@ -12,7 +12,6 @@
     <!-- 新增记录表单 -->
     <div class="bg-white rounded-lg shadow p-4 mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
         <input type="date" id="workDate" class="border rounded px-3 py-2" required>
-        <!-- 下班固定下拉选项 -->
         <select id="endTimeSelect" class="border rounded px-3 py-2" required>
             <option value="">请选择下班时间</option>
             <option value="17:00">17:00（下午5点）</option>
@@ -23,12 +22,21 @@
         <button onclick="addRecord()" class="bg-blue-500 text-white rounded py-2 md:col-span-3 hover:bg-blue-600">添加记录</button>
     </div>
 
-    <!-- 统计汇总 -->
+    <!-- 全局汇总 -->
     <div class="bg-green-50 p-4 rounded-lg mb-4 flex gap-6 text-lg font-medium flex-wrap">
         <span>总有效工时：<span id="totalHour">0</span> h</span>
         <span>总收入：<span id="totalMoney">0</span> 元</span>
         <button onclick="exportCSV()" class="text-blue-600 underline">导出CSV</button>
         <button onclick="clearAllData()" class="text-red-600 underline">清空全部数据</button>
+    </div>
+
+    <!-- 月度统计区域【新增】 -->
+    <div class="bg-amber-50 p-4 rounded-lg mb-6 flex flex-wrap items-center gap-3">
+        <span class="font-medium">月度工资统计：</span>
+        <select id="statYear" class="border rounded px-3 py-2"></select>
+        <select id="statMonth" class="border rounded px-3 py-2"></select>
+        <button onclick="calcMonthData()" class="bg-amber-500 text-white rounded px-4 py-2 hover:bg-amber-600">查询</button>
+        <div id="monthResult" class="text-lg font-medium ml-2"></div>
     </div>
 
     <!-- 记账表格 -->
@@ -55,13 +63,14 @@
 // ========== 全局固定配置 ==========
 const STORAGE_KEY = "hour_worker_records";
 const HOURLY_WAGE = 16.5;
-const START_TIME_FIXED = "08:00"; // 固定早上8点上班
+const START_TIME_FIXED = "08:00";
 let recordList = [];
 
 window.onload = function(){
     loadData();
     renderTable();
     calcSummary();
+    initMonthSelector(); // 初始化年月下拉框
 }
 
 // 读取本地存储
@@ -82,7 +91,6 @@ function getRuleConfig(endStr){
     if(endStr === "17:00"){
         return {breakHour: 1.0, subsidy: 12};
     }else{
-        // 20:30、21:30
         return {breakHour: 1.5, subsidy: 24};
     }
 }
@@ -135,6 +143,7 @@ function addRecord(){
     saveData();
     renderTable();
     calcSummary();
+    initMonthSelector(); // 新增记录后刷新年月选项
 
     // 清空输入项
     document.getElementById("workDate").value = "";
@@ -148,6 +157,7 @@ function deleteRecord(id){
     saveData();
     renderTable();
     calcSummary();
+    initMonthSelector();
 }
 
 // 渲染表格
@@ -165,14 +175,14 @@ function renderTable(){
             <td class="border p-2 text-center">${item.income.toFixed(2)}</td>
             <td class="border p-2 text-center">${item.note}</td>
             <td class="border p-2 text-center">
-                <button onclick="deleteRecord(${item.id})" class="text-red-500">删除</button>
+                <button onclick="deleteRecord(${item.id})" class="text-red-600">删除</button>
             </td>
         `;
         tbody.appendChild(tr);
     })
 }
 
-// 汇总统计工时和总收入
+// 全局汇总统计工时和总收入
 function calcSummary(){
     let totalH = 0;
     let totalM = 0;
@@ -182,6 +192,57 @@ function calcSummary(){
     })
     document.getElementById("totalHour").innerText = totalH.toFixed(1);
     document.getElementById("totalMoney").innerText = totalM.toFixed(2);
+}
+
+// 初始化年月下拉选项【新增】
+function initMonthSelector(){
+    const yearSelect = document.getElementById("statYear");
+    const monthSelect = document.getElementById("statMonth");
+    yearSelect.innerHTML = "";
+    monthSelect.innerHTML = "";
+
+    // 收集所有存在记录的年份
+    const yearSet = new Set();
+    recordList.forEach(item=>{
+        const year = item.date.split("-")[0];
+        yearSet.add(year);
+    });
+    // 加上当前年份兜底
+    const nowYear = new Date().getFullYear().toString();
+    yearSet.add(nowYear);
+
+    // 填充年份下拉
+    Array.from(yearSet).sort((a,b)=>b-a).forEach(y=>{
+        yearSelect.innerHTML += `<option value="${y}">${y}年</option>`;
+    });
+
+    // 填充1~12月
+    for(let m=1;m<=12;m++){
+        monthSelect.innerHTML += `<option value="${String(m).padStart(2,'0')}">${m}月</option>`;
+    }
+}
+
+// 按月统计计算【新增核心函数】
+function calcMonthData(){
+    const selectYear = document.getElementById("statYear").value;
+    const selectMonth = document.getElementById("statMonth").value;
+    const resultDom = document.getElementById("monthResult");
+
+    // 筛选当月数据 日期格式 YYYY-MM-DD
+    const monthRecords = recordList.filter(item=>{
+        const [y,m] = item.date.split("-");
+        return y === selectYear && m === selectMonth;
+    });
+
+    let monthHour = 0;
+    let monthMoney = 0;
+    monthRecords.forEach(r=>{
+        monthHour += r.validHours;
+        monthMoney += r.income;
+    });
+
+    resultDom.innerHTML =
+        `【${selectYear}年${selectMonth}月】有效工时：${monthHour.toFixed(1)}h，当月总收入：<span class="text-red-600">${monthMoney.toFixed(2)} 元</span>`;
 }
 
 // 导出CSV文件
@@ -209,6 +270,8 @@ function clearAllData(){
         saveData();
         renderTable();
         calcSummary();
+        initMonthSelector();
+        document.getElementById("monthResult").innerHTML = "";
     }
 }
 </script>
