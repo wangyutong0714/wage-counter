@@ -10,7 +10,7 @@
     <h1 class="text-3xl font-bold text-center mb-6">小时工记账表格</h1>
 
     <!-- 新增记录表单 -->
-    <div class="bg-white rounded-lg shadow p-4 mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div class="bg-white rounded-lg shadow p-4 mb-6 grid grid-cols-1 md:grid-cols-4 gap-3">
         <input type="date" id="workDate" class="border rounded px-3 py-2" required>
         <select id="endTimeSelect" class="border rounded px-3 py-2" required>
             <option value="">请选择下班时间</option>
@@ -18,8 +18,9 @@
             <option value="20:30">20:30（晚上八点半）</option>
             <option value="21:30">21:30（晚上九点半）</option>
         </select>
+        <input type="number" step="0.01" id="rewardPunish" placeholder="奖惩金额(默认0)" class="border rounded px-3 py-2">
         <input type="text" id="note" placeholder="备注" class="border rounded px-3 py-2">
-        <button onclick="addRecord()" class="bg-blue-500 text-white rounded py-2 md:col-span-3 hover:bg-blue-600">添加记录</button>
+        <button onclick="addRecord()" class="bg-blue-500 text-white rounded py-2 md:col-span-4 hover:bg-blue-600">添加记录</button>
     </div>
 
     <!-- 全局汇总 -->
@@ -30,7 +31,7 @@
         <button onclick="clearAllData()" class="text-red-600 underline">清空全部数据</button>
     </div>
 
-    <!-- 月度统计区域【新增】 -->
+    <!-- 月度统计区域 -->
     <div class="bg-amber-50 p-4 rounded-lg mb-6 flex flex-wrap items-center gap-3">
         <span class="font-medium">月度工资统计：</span>
         <select id="statYear" class="border rounded px-3 py-2"></select>
@@ -49,7 +50,8 @@
                     <th class="border p-2">下班</th>
                     <th class="border p-2">有效工时(h)</th>
                     <th class="border p-2">补贴(元)</th>
-                    <th class="border p-2">当日收入</th>
+                    <th class="border p-2">奖惩(元)</th>
+                    <th class="border p-2">当日总收入</th>
                     <th class="border p-2">备注</th>
                     <th class="border p-2">操作</th>
                 </tr>
@@ -70,7 +72,7 @@ window.onload = function(){
     loadData();
     renderTable();
     calcSummary();
-    initMonthSelector(); // 初始化年月下拉框
+    initMonthSelector();
 }
 
 // 读取本地存储
@@ -118,6 +120,7 @@ function calcValidWorkHour(endStr, breakHour) {
 function addRecord(){
     const date = document.getElementById("workDate").value;
     const endTime = document.getElementById("endTimeSelect").value;
+    let rewardPunish = parseFloat(document.getElementById("rewardPunish").value) || 0;
     const note = document.getElementById("note").value.trim();
 
     if(!date || !endTime){
@@ -127,7 +130,8 @@ function addRecord(){
 
     const {breakHour, subsidy} = getRuleConfig(endTime);
     const validHours = calcValidWorkHour(endTime, breakHour);
-    const income = validHours * HOURLY_WAGE + subsidy;
+    const baseIncome = validHours * HOURLY_WAGE + subsidy;
+    const totalIncome = baseIncome + rewardPunish;
 
     const item = {
         id: Date.now(),
@@ -136,18 +140,28 @@ function addRecord(){
         endTime,
         validHours,
         subsidy,
-        income,
+        rewardPunish,
+        income: totalIncome,
         note
     };
-    recordList.unshift(item);
+
+    // 核心：同一天自动覆盖旧数据
+    const existIndex = recordList.findIndex(r => r.date === date);
+    if(existIndex >= 0){
+        recordList[existIndex] = item;
+    }else{
+        recordList.unshift(item);
+    }
+
     saveData();
     renderTable();
     calcSummary();
-    initMonthSelector(); // 新增记录后刷新年月选项
+    initMonthSelector();
 
     // 清空输入项
     document.getElementById("workDate").value = "";
     document.getElementById("endTimeSelect").value = "";
+    document.getElementById("rewardPunish").value = "";
     document.getElementById("note").value = "";
 }
 
@@ -172,6 +186,7 @@ function renderTable(){
             <td class="border p-2 text-center">${item.endTime}</td>
             <td class="border p-2 text-center">${item.validHours}</td>
             <td class="border p-2 text-center">${item.subsidy}</td>
+            <td class="border p-2 text-center">${item.rewardPunish.toFixed(2)}</td>
             <td class="border p-2 text-center">${item.income.toFixed(2)}</td>
             <td class="border p-2 text-center">${item.note}</td>
             <td class="border p-2 text-center">
@@ -194,41 +209,36 @@ function calcSummary(){
     document.getElementById("totalMoney").innerText = totalM.toFixed(2);
 }
 
-// 初始化年月下拉选项【新增】
+// 初始化年月下拉选项
 function initMonthSelector(){
     const yearSelect = document.getElementById("statYear");
     const monthSelect = document.getElementById("statMonth");
     yearSelect.innerHTML = "";
     monthSelect.innerHTML = "";
 
-    // 收集所有存在记录的年份
     const yearSet = new Set();
     recordList.forEach(item=>{
         const year = item.date.split("-")[0];
         yearSet.add(year);
     });
-    // 加上当前年份兜底
     const nowYear = new Date().getFullYear().toString();
     yearSet.add(nowYear);
 
-    // 填充年份下拉
     Array.from(yearSet).sort((a,b)=>b-a).forEach(y=>{
         yearSelect.innerHTML += `<option value="${y}">${y}年</option>`;
     });
 
-    // 填充1~12月
     for(let m=1;m<=12;m++){
         monthSelect.innerHTML += `<option value="${String(m).padStart(2,'0')}">${m}月</option>`;
     }
 }
 
-// 按月统计计算【新增核心函数】
+// 按月统计计算
 function calcMonthData(){
     const selectYear = document.getElementById("statYear").value;
     const selectMonth = document.getElementById("statMonth").value;
     const resultDom = document.getElementById("monthResult");
 
-    // 筛选当月数据 日期格式 YYYY-MM-DD
     const monthRecords = recordList.filter(item=>{
         const [y,m] = item.date.split("-");
         return y === selectYear && m === selectMonth;
@@ -251,9 +261,9 @@ function exportCSV(){
         alert("暂无数据");
         return;
     }
-    let csv = "日期,上班时间,下班时间,有效工时,补贴,当日收入,备注\n";
+    let csv = "日期,上班时间,下班时间,有效工时,补贴,奖惩金额,当日总收入,备注\n";
     recordList.forEach(item=>{
-        csv += `${item.date},${item.startTime},${item.endTime},${item.validHours},${item.subsidy},${item.income.toFixed(2)},${item.note}\n`
+        csv += `${item.date},${item.startTime},${item.endTime},${item.validHours},${item.subsidy},${item.rewardPunish.toFixed(2)},${item.income.toFixed(2)},${item.note}\n`
     })
     const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
