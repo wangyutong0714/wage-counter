@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小时工记账本</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 max-w-5xl mx-auto">
+    <h1 class="text-3xl font-bold text-center mb-6">小时工记账表格</h1>
+
+    <!-- 新增记录表单 -->
+    <div class="bg-white rounded-lg shadow p-4 mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <input type="date" id="workDate" class="border rounded px-3 py-2" required>
+        <!-- 下班固定下拉选项 -->
+        <select id="endTimeSelect" class="border rounded px-3 py-2" required>
+            <option value="">请选择下班时间</option>
+            <option value="17:00">17:00（下午5点）</option>
+            <option value="20:30">20:30（晚上八点半）</option>
+            <option value="21:30">21:30（晚上九点半）</option>
+        </select>
+        <input type="text" id="note" placeholder="备注" class="border rounded px-3 py-2">
+        <button onclick="addRecord()" class="bg-blue-500 text-white rounded py-2 md:col-span-3 hover:bg-blue-600">添加记录</button>
+    </div>
+
+    <!-- 统计汇总 -->
+    <div class="bg-green-50 p-4 rounded-lg mb-4 flex gap-6 text-lg font-medium flex-wrap">
+        <span>总有效工时：<span id="totalHour">0</span> h</span>
+        <span>总收入：<span id="totalMoney">0</span> 元</span>
+        <button onclick="exportCSV()" class="text-blue-600 underline">导出CSV</button>
+        <button onclick="clearAllData()" class="text-red-600 underline">清空全部数据</button>
+    </div>
+
+    <!-- 记账表格 -->
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+        <table class="w-full">
+            <thead class="bg-gray-200">
+                <tr>
+                    <th class="border p-2">日期</th>
+                    <th class="border p-2">上班</th>
+                    <th class="border p-2">下班</th>
+                    <th class="border p-2">有效工时(h)</th>
+                    <th class="border p-2">补贴(元)</th>
+                    <th class="border p-2">当日收入</th>
+                    <th class="border p-2">备注</th>
+                    <th class="border p-2">操作</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+            </tbody>
+        </table>
+    </div>
+
+<script>
+// ========== 全局固定配置 ==========
+const STORAGE_KEY = "hour_worker_records";
+const HOURLY_WAGE = 16.5;
+const START_TIME_FIXED = "08:00"; // 固定早上8点上班
+let recordList = [];
+
+window.onload = function(){
+    loadData();
+    renderTable();
+    calcSummary();
+}
+
+// 读取本地存储
+function loadData(){
+    const str = localStorage.getItem(STORAGE_KEY);
+    recordList = str ? JSON.parse(str) : [];
+}
+
+// 保存数据
+function saveData(){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(recordList));
+}
+
+/**
+ * 根据下班时间获取休息时长、补贴
+ */
+function getRuleConfig(endStr){
+    if(endStr === "17:00"){
+        return {breakHour: 1.0, subsidy: 12};
+    }else{
+        // 20:30、21:30
+        return {breakHour: 1.5, subsidy: 24};
+    }
+}
+
+/**
+ * 时间字符串转分钟
+ */
+function timeToMin(timeStr) {
+    const [h, m] = timeStr.split(":").map(Number);
+    return h * 60 + m;
+}
+
+/**
+ * 计算有效工时
+ */
+function calcValidWorkHour(endStr, breakHour) {
+    const startMin = timeToMin(START_TIME_FIXED);
+    const endMin = timeToMin(endStr);
+    const totalHour = (endMin - startMin) / 60;
+    const validHour = Math.max(totalHour - breakHour, 0);
+    return parseFloat(validHour.toFixed(2));
+}
+
+// 添加记账记录
+function addRecord(){
+    const date = document.getElementById("workDate").value;
+    const endTime = document.getElementById("endTimeSelect").value;
+    const note = document.getElementById("note").value.trim();
+
+    if(!date || !endTime){
+        alert("日期与下班时间必须选择！");
+        return;
+    }
+
+    const {breakHour, subsidy} = getRuleConfig(endTime);
+    const validHours = calcValidWorkHour(endTime, breakHour);
+    const income = validHours * HOURLY_WAGE + subsidy;
+
+    const item = {
+        id: Date.now(),
+        date,
+        startTime: START_TIME_FIXED,
+        endTime,
+        validHours,
+        subsidy,
+        income,
+        note
+    };
+    recordList.unshift(item);
+    saveData();
+    renderTable();
+    calcSummary();
+
+    // 清空输入项
+    document.getElementById("workDate").value = "";
+    document.getElementById("endTimeSelect").value = "";
+    document.getElementById("note").value = "";
+}
+
+// 删除单条记录
+function deleteRecord(id){
+    recordList = recordList.filter(item => item.id !== id);
+    saveData();
+    renderTable();
+    calcSummary();
+}
+
+// 渲染表格
+function renderTable(){
+    const tbody = document.getElementById("tableBody");
+    tbody.innerHTML = "";
+    recordList.forEach(item => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td class="border p-2 text-center">${item.date}</td>
+            <td class="border p-2 text-center">${item.startTime}</td>
+            <td class="border p-2 text-center">${item.endTime}</td>
+            <td class="border p-2 text-center">${item.validHours}</td>
+            <td class="border p-2 text-center">${item.subsidy}</td>
+            <td class="border p-2 text-center">${item.income.toFixed(2)}</td>
+            <td class="border p-2 text-center">${item.note}</td>
+            <td class="border p-2 text-center">
+                <button onclick="deleteRecord(${item.id})" class="text-red-500">删除</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    })
+}
+
+// 汇总统计工时和总收入
+function calcSummary(){
+    let totalH = 0;
+    let totalM = 0;
+    recordList.forEach(i=>{
+        totalH += i.validHours;
+        totalM += i.income;
+    })
+    document.getElementById("totalHour").innerText = totalH.toFixed(1);
+    document.getElementById("totalMoney").innerText = totalM.toFixed(2);
+}
+
+// 导出CSV文件
+function exportCSV(){
+    if(recordList.length === 0){
+        alert("暂无数据");
+        return;
+    }
+    let csv = "日期,上班时间,下班时间,有效工时,补贴,当日收入,备注\n";
+    recordList.forEach(item=>{
+        csv += `${item.date},${item.startTime},${item.endTime},${item.validHours},${item.subsidy},${item.income.toFixed(2)},${item.note}\n`
+    })
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "小时工记账.csv";
+    a.click();
+}
+
+// 清空全部数据
+function clearAllData(){
+    if(confirm("确定清空所有记录，无法恢复！")){
+        recordList = [];
+        saveData();
+        renderTable();
+        calcSummary();
+    }
+}
+</script>
+</body>
+</html>
